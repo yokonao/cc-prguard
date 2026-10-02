@@ -1,13 +1,10 @@
-// cc-prguard is a Claude Code PreToolUse hook. It parses `gh pr create` in Bash commands
-// and denies the call with fix instructions when it violates the per-repository rules.
-// Claude Code treats exit 2 as a blocking error, so failures exit with 1.
-package main
+// Package prguard implements a Claude Code PreToolUse hook. It parses `gh pr create` in Bash
+// commands and denies the call with fix instructions when it violates the per-repository rules.
+package prguard
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
-	"os"
 )
 
 type hookInput struct {
@@ -26,14 +23,8 @@ type hookOutput struct {
 	} `json:"hookSpecificOutput"`
 }
 
-func main() {
-	if err := run(os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "cc-prguard:", err)
-		os.Exit(1)
-	}
-}
-
-func run(stdin io.Reader, stdout io.Writer) error {
+// Run reads a hook input from stdin and writes a deny decision to stdout when the command violates the rules.
+func Run(stdin io.Reader, stdout io.Writer) error {
 	var in hookInput
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		return err

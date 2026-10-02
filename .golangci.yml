@@ -1,0 +1,12 @@
+version: "2"
+linters:
+  enable:
+    - unconvert
+    - unparam
+    - revive
+  exclusions:
+    presets:
+      - comments
+formatters:
+  enable:
+    - gofmt

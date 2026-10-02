@@ -6,9 +6,10 @@ When a command misses a requirement (draft, labels, milestone), the hook denies 
 
 ## Install
 
-```sh
-go install github.com/yokonao/cc-prguard@latest
-```
+Download a prebuilt binary from [GitHub Releases](https://github.com/yokonao/cc-prguard/releases).
+Every release ships with a build provenance attestation.
+
+See [docs/install.md](docs/install.md) for other install methods and how to verify a release.
 
 ## Configure the hook
 
@@ -20,7 +21,7 @@ Add the hook to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "/path/to/cc-prguard" }]
+        "hooks": [{ "type": "command", "command": "cc-prguard" }]
       }
     ]
   }
@@ -55,6 +56,14 @@ rules:
 The target repository is resolved in the same order as `gh`: `-R` / `--repo`, the `gh repo set-default` remote, then `origin`. A preceding `cd <dir> &&` is taken into account. If the repository cannot be resolved, only rules without `repos` apply.
 
 `gh pr create --help` and `--dry-run` are always allowed.
+
+## Development
+
+```sh
+go test ./...
+golangci-lint run
+golangci-lint fmt
+```
 
 ## License
 
