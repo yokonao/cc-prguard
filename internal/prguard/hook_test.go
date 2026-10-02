@@ -1,4 +1,4 @@
-package main
+package prguard
 
 import (
 	"bytes"
@@ -37,7 +37,7 @@ func TestRun(t *testing.T) {
 
 	t.Run("violation returns deny", func(t *testing.T) {
 		var out bytes.Buffer
-		require.NoError(t, run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create -d`), &out))
+		require.NoError(t, Run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create -d`), &out))
 		var got hookOutput
 		require.NoError(t, json.Unmarshal(out.Bytes(), &got))
 		assert.Equal(t, "deny", got.HookSpecificOutput.PermissionDecision)
@@ -46,20 +46,20 @@ func TestRun(t *testing.T) {
 	})
 	t.Run("no output when satisfied", func(t *testing.T) {
 		var out bytes.Buffer
-		require.NoError(t, run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create -d -m Q3 -l type:1`), &out))
+		require.NoError(t, Run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create -d -m Q3 -l type:1`), &out))
 		assert.Empty(t, out.String())
 	})
 	t.Run("ignores events other than PreToolUse", func(t *testing.T) {
 		var out bytes.Buffer
-		require.NoError(t, run(hookJSON(t, "PostToolUse", cfgHome, `gh pr create`), &out))
+		require.NoError(t, Run(hookJSON(t, "PostToolUse", cfgHome, `gh pr create`), &out))
 		assert.Empty(t, out.String())
 	})
 	t.Run("ignores --help", func(t *testing.T) {
 		var out bytes.Buffer
-		require.NoError(t, run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create --help`), &out))
+		require.NoError(t, Run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create --help`), &out))
 		assert.Empty(t, out.String())
 	})
 	t.Run("invalid JSON is an error", func(t *testing.T) {
-		assert.Error(t, run(bytes.NewReader([]byte("{")), &bytes.Buffer{}))
+		assert.Error(t, Run(bytes.NewReader([]byte("{")), &bytes.Buffer{}))
 	})
 }
