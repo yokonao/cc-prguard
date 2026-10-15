@@ -21,12 +21,16 @@ Add the hook to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "cc-prguard" }]
+        "hooks": [{ "type": "command", "command": "cc-prguard", "onFailure": "block" }]
       }
     ]
   }
 }
 ```
+
+If the config cannot be read or parsed, cc-prguard denies `gh pr create` with the error and allows other commands.
+`"onFailure": "block"` (Claude Code v2.1.295 or later) also blocks the Bash call when the hook itself fails, for example when the binary is missing or crashes.
+Since the hook runs on every Bash call, such a failure blocks all of them until it is fixed; without the option, Claude Code lets them through.
 
 ## Rules
 
