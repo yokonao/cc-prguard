@@ -63,3 +63,50 @@ func TestRun(t *testing.T) {
 		assert.Error(t, Run(bytes.NewReader([]byte("{")), &bytes.Buffer{}))
 	})
 }
+
+func TestRunConfigError(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, cfgPath string)
+		want  string
+	}{
+		{
+			"invalid YAML",
+			func(t *testing.T, p string) { require.NoError(t, os.WriteFile(p, []byte("rules: ["), 0o600)) },
+			"parse ",
+		},
+		{
+			"invalid rule",
+			func(t *testing.T, p string) {
+				require.NoError(t, os.WriteFile(p, []byte("rules:\n  - require-labels:\n      - hint: x\n"), 0o600))
+			},
+			"one-of is empty",
+		},
+		{
+			"unreadable",
+			func(t *testing.T, p string) { require.NoError(t, os.Mkdir(p, 0o700)) },
+			"is a directory",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgHome := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", cfgHome)
+			require.NoError(t, os.MkdirAll(filepath.Join(cfgHome, "cc-prguard"), 0o700))
+			cfgPath := filepath.Join(cfgHome, "cc-prguard", "config.yaml")
+			tt.setup(t, cfgPath)
+
+			var out bytes.Buffer
+			require.NoError(t, Run(hookJSON(t, "PreToolUse", cfgHome, `gh pr create -d`), &out))
+			var got hookOutput
+			require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+			assert.Equal(t, "deny", got.HookSpecificOutput.PermissionDecision)
+			assert.Contains(t, got.HookSpecificOutput.PermissionDecisionReason, cfgPath)
+			assert.Contains(t, got.HookSpecificOutput.PermissionDecisionReason, tt.want)
+
+			out.Reset()
+			require.NoError(t, Run(hookJSON(t, "PreToolUse", cfgHome, `gh pr view 1`), &out))
+			assert.Empty(t, out.String(), "non-PR commands stay allowed")
+		})
+	}
+}

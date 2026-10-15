@@ -4,6 +4,7 @@ package prguard
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 )
 
@@ -23,7 +24,8 @@ type hookOutput struct {
 	} `json:"hookSpecificOutput"`
 }
 
-// Run reads a hook input from stdin and writes a deny decision to stdout when the command violates the rules.
+// Run reads a hook input from stdin and writes a deny decision to stdout when a `gh pr create` command violates
+// the rules or the config cannot be loaded.
 func Run(stdin io.Reader, stdout io.Writer) error {
 	var in hookInput
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
@@ -37,19 +39,12 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 		return nil
 	}
 
-	path, err := configPath()
+	reason, err := check(in.Cwd, pr)
 	if err != nil {
-		return err
+		// Exiting non-zero would let the command through, so fail closed with a deny.
+		reason = fmt.Sprintf("cc-prguard blocked this command because it could not load its config: %v\n"+
+			"Ask the user to fix the config; do not work around this check.", err)
 	}
-	cfg, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-	repo := pr.repo
-	if repo == "" {
-		repo = resolveRepo(pr.dir(in.Cwd))
-	}
-	reason := cfg.check(repo, pr)
 	if reason == "" {
 		return nil
 	}
@@ -59,4 +54,20 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	out.HookSpecificOutput.PermissionDecision = "deny"
 	out.HookSpecificOutput.PermissionDecisionReason = reason
 	return json.NewEncoder(stdout).Encode(out)
+}
+
+func check(cwd string, pr *prCreate) (string, error) {
+	path, err := configPath()
+	if err != nil {
+		return "", fmt.Errorf("locate config: %w", err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		return "", err
+	}
+	repo := pr.repo
+	if repo == "" {
+		repo = resolveRepo(pr.dir(cwd))
+	}
+	return cfg.check(repo, pr), nil
 }
