@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 )
 
 type hookInput struct {
@@ -34,12 +36,13 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	if in.HookEventName != "PreToolUse" {
 		return nil
 	}
-	pr := parsePRCreate(in.ToolInput.Command)
-	if pr == nil || pr.help || pr.dryRun {
+	an := parseCommand(in.ToolInput.Command)
+	an.prs = slices.DeleteFunc(an.prs, func(pr *prCreate) bool { return pr.help || pr.dryRun })
+	if len(an.prs) == 0 && an.unknown == "" {
 		return nil
 	}
 
-	reason, err := check(in.Cwd, pr)
+	reason, err := check(in.Cwd, an)
 	if err != nil {
 		// Exiting non-zero would let the command through, so fail closed with a deny.
 		reason = fmt.Sprintf("cc-prguard blocked this command because it could not load its config: %v\n"+
@@ -56,7 +59,7 @@ func Run(stdin io.Reader, stdout io.Writer) error {
 	return json.NewEncoder(stdout).Encode(out)
 }
 
-func check(cwd string, pr *prCreate) (string, error) {
+func check(cwd string, an analysis) (string, error) {
 	path, err := configPath()
 	if err != nil {
 		return "", fmt.Errorf("locate config: %w", err)
@@ -65,9 +68,31 @@ func check(cwd string, pr *prCreate) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	repo := pr.repo
-	if repo == "" {
-		repo = resolveRepo(pr.dir(cwd))
+	if len(cfg.Rules) == 0 {
+		return "", nil
 	}
-	return cfg.check(repo, pr), nil
+	if an.unknown != "" {
+		return unknownReason(an.unknown), nil
+	}
+	hasRepoRules := slices.ContainsFunc(cfg.Rules, func(r rule) bool { return len(r.Repos) > 0 })
+	var reasons []string
+	for _, pr := range an.prs {
+		repo := pr.repo
+		if repo == "" && pr.dirUnknown && hasRepoRules {
+			return unknownReason("a preceding cd changes to a directory that is not a literal path"), nil
+		}
+		if repo == "" && !pr.dirUnknown {
+			repo = resolveRepo(pr.dir(cwd))
+		}
+		if r := cfg.check(repo, pr); r != "" && !slices.Contains(reasons, r) {
+			reasons = append(reasons, r)
+		}
+	}
+	return strings.Join(reasons, "\n"), nil
+}
+
+func unknownReason(why string) string {
+	return fmt.Sprintf("cc-prguard cannot check the PR rules for this command because %s.\n"+
+		"Run gh pr create as a plain command with literal arguments: no eval, variables, or wrapper shells around gh, "+
+		"its subcommands, -R, --label, or a preceding cd. Do not work around this check.", why)
 }
