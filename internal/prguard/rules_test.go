@@ -55,7 +55,7 @@ func TestCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cfg.check(tt.repo, parsePRCreate(tt.cmd))
+			got := cfg.check(tt.repo, parseOne(t, tt.cmd))
 			if len(tt.contains) == 0 {
 				assert.Empty(t, got)
 				return
@@ -70,7 +70,7 @@ func TestCheck(t *testing.T) {
 	}
 
 	t.Run("deduplicates requirements", func(t *testing.T) {
-		got := cfg.check("acme/api", parsePRCreate(`gh pr create -l type:0 -m Q3`))
+		got := cfg.check("acme/api", parseOne(t, `gh pr create -l type:0 -m Q3`))
 		assert.Equal(t, "gh pr create does not satisfy the PR rules for acme/api. Fix the command and re-run:\n  - add --draft\n", got)
 	})
 }

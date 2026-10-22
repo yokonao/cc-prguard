@@ -57,7 +57,10 @@ rules:
 | `require-milestone` | `--milestone` |
 | `require-labels` | For each entry, at least one `--label` from `one-of`. `hint` is shown with the fix. |
 
-The target repository is resolved in the same order as `gh`: `-R` / `--repo`, the `gh repo set-default` remote, then `origin`. A preceding `cd <dir> &&` is taken into account. If the repository cannot be resolved, only rules without `repos` apply.
+The target repository is resolved in the same order as `gh`: `-R` / `--repo`, the `gh repo set-default` remote, then `origin`. An earlier `cd <dir>` in the same shell (after `&&`, `;`, or a newline, scoped to its subshell) is taken into account. If the repository cannot be resolved, only rules without `repos` apply.
+
+The whole Bash command is parsed, so every `gh pr create` in it is checked: in lists and pipelines, subshells, blocks, command substitutions, `if` / `for` / `while` bodies, behind `command`, `builtin`, `env`, `exec`, `time`, and `nohup`, and in `bash -c` / `sh -c` scripts.
+A command that looks like it creates a PR but cannot be inspected statically, such as `eval`, `$GH pr create`, a non-literal `--label` or `cd` target, or a shell reading commands from stdin, is denied with a request to write it plainly.
 
 `gh pr create --help` and `--dry-run` are always allowed.
 
