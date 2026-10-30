@@ -32,6 +32,10 @@ If the config cannot be read or parsed, cc-prguard denies `gh pr create` with th
 `"onFailure": "block"` (Claude Code v2.1.295 or later) also blocks the Bash call when the hook itself fails, for example when the binary is missing or crashes.
 Since the hook runs on every Bash call, such a failure blocks all of them until it is fixed; without the option, Claude Code lets them through.
 
+In Claude Code v2.1.314 or later, the `Bash` matcher also covers the shell commands the Monitor tool starts, so cc-prguard checks `gh pr create` in them too.
+Earlier versions do not run the hook for Monitor.
+With `"onFailure": "block"`, a failing hook then blocks Monitor calls as well as Bash calls.
+
 ## Rules
 
 Rules live in `$XDG_CONFIG_HOME/cc-prguard/config.yaml` (default `~/.config/cc-prguard/config.yaml`). Without the file, every command is allowed.
