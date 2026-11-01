@@ -9,4 +9,9 @@ linters:
       - comments
 formatters:
   enable:
-    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/yokonao/cc-prguard
