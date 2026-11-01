@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "mode": "full",
+  "enabledManagers": ["mise", "custom.regex"],
+  "minimumReleaseAge": "3 days",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Tool versions passed to actions, which Dependabot does not update",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "uses: (?<depName>goreleaser/goreleaser|golangci/golangci-lint)-action@\\S+\\s+with:\\s+version: (?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep golangci-lint in mise.toml and CI on the same version",
+      "matchPackageNames": ["golangci/golangci-lint", "golangci-lint", "aqua:golangci/golangci-lint"],
+      "groupName": "golangci-lint"
+    }
+  ]
+}
