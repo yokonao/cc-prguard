@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "mode": "full",
-  "enabledManagers": ["mise", "custom.regex"],
+  "enabledManagers": ["gomod", "mise", "custom.regex"],
   "minimumReleaseAge": "3 days",
   "customManagers": [
     {
@@ -16,6 +16,18 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Go modules stay with Dependabot; Renovate updates only the go directive",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["!go"],
+      "enabled": false
+    },
+    {
+      "description": "Bump the go directive, which Renovate otherwise reads as a minimum",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "bump"
+    },
     {
       "description": "Keep golangci-lint in mise.toml and CI on the same version",
       "matchPackageNames": ["golangci/golangci-lint", "golangci-lint", "aqua:golangci/golangci-lint"],
