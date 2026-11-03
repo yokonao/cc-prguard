@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1 - 2026-11-03
+
+- No behavior changes. This is the first release published as an immutable GitHub release, so its tag and assets cannot be changed; earlier releases stay mutable.
+- README: document that the hook also checks the commands the Monitor tool starts (Claude Code v2.1.314 or later).
+
 ## v0.3.0 - 2026-10-23
 
 - Parse the Bash command as a shell script instead of splitting it into words. `gh pr create` is now checked after a newline or an operator without spaces, in subshells, blocks, command substitutions, and control flow, behind `command`, `builtin`, `env`, `exec`, `time`, and `nohup`, and in `bash -c` scripts. Previously these were allowed without checks.
