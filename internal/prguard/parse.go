@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/syntax"
@@ -46,7 +47,7 @@ var valueFlags = []string{
 func parseCommand(cmd string) analysis {
 	w := &walker{}
 	w.script(cmd, &shellState{})
-	if !prCreateText.MatchString(cmd) {
+	if !w.always && !prCreateText.MatchString(strings.NewReplacer(`\`, "", `'`, "", `"`, "").Replace(cmd)) {
 		w.unknown = ""
 	}
 	return analysis{prs: w.prs, unknown: w.unknown}
@@ -74,11 +75,18 @@ func subshell(st *shellState) *shellState {
 type walker struct {
 	prs     []*prCreate
 	unknown string
+	always  bool // unknown is kept even if the command text does not look like it creates a PR
 }
 
 func (w *walker) fail(reason string) {
 	if w.unknown == "" {
 		w.unknown = reason
+	}
+}
+
+func (w *walker) failAlways(reason string) {
+	if w.unknown == "" {
+		w.unknown, w.always = reason, true
 	}
 }
 
@@ -186,6 +194,7 @@ func (w *walker) call(c *syntax.CallExpr, st *shellState) {
 
 // run inspects a simple command, unwrapping commands that run their arguments as another command.
 func (w *walker) run(toks []token, st *shellState) {
+	fromStdin := false // a wrapper appends arguments read from stdin
 	for len(toks) > 0 {
 		if !toks[0].known {
 			w.fail("a command name is not a literal word")
@@ -209,6 +218,23 @@ func (w *walker) run(toks []token, st *shellState) {
 			toks = skipOptions(args, "-o", "-f", "--output", "--format")
 		case "env":
 			toks = w.env(args, &st)
+		case "timeout":
+			if toks = getopt(args, "sk", []string{"--signal", "--kill-after"}, nil); len(toks) > 0 {
+				toks = toks[1:] // duration
+			}
+		case "nice":
+			toks = getopt(args, "n", []string{"--adjustment"}, nil)
+		case "stdbuf":
+			toks = getopt(args, "ioe", []string{"--input", "--output", "--error"}, nil)
+		case "caffeinate":
+			toks = getopt(args, "tw", nil, nil)
+		case "sudo":
+			toks = w.sudo(args, &st)
+		case "xargs":
+			fromStdin = true
+			toks = getopt(args, "aEdILnPsJRS", []string{
+				"--arg-file", "--delimiter", "--max-lines", "--max-args", "--max-procs", "--max-chars", "--process-slot-var",
+			}, nil)
 		case "eval":
 			w.fail("it uses eval")
 			return
@@ -222,7 +248,7 @@ func (w *walker) run(toks []token, st *shellState) {
 			w.shell(args, st)
 			return
 		case "gh":
-			w.gh(args, st)
+			w.gh(args, st, fromStdin)
 			return
 		default:
 			return
@@ -290,6 +316,30 @@ func (w *walker) env(args []token, st **shellState) []token {
 	return nil
 }
 
+// sudo skips sudo's options and assignments. -D changes the directory only for the command sudo runs.
+func (w *walker) sudo(args []token, st **shellState) []token {
+	args = getopt(args, "aCcDgpRrTtUu", []string{
+		"--auth-type", "--close-from", "--login-class", "--chdir", "--group", "--prompt", "--chroot", "--role",
+		"--command-timeout", "--type", "--other-user", "--user",
+	}, func(opt string, v token) {
+		if opt != "-D" && opt != "--chdir" {
+			return
+		}
+		*st = subshell(*st)
+		if v.known {
+			(*st).cd(v.val)
+		} else {
+			(*st).dirUnknown = true
+		}
+	})
+	for len(args) > 0 && shellAssignment.MatchString(args[0].val) {
+		args = args[1:]
+	}
+	return args
+}
+
+var shellAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
 // shell inspects `bash -c <script>`. A shell reading its script from stdin cannot be inspected.
 func (w *walker) shell(args []token, st *shellState) {
 	cmdString, stdin := false, false
@@ -334,7 +384,9 @@ func (w *walker) shell(args []token, st *shellState) {
 	}
 }
 
-func (w *walker) gh(args []token, st *shellState) {
+// gh records a `gh pr create`. With fromStdin, more arguments come from stdin, so gh is denied unless its
+// literal arguments already name another subcommand.
+func (w *walker) gh(args []token, st *shellState, fromStdin bool) {
 	pr := &prCreate{cdDir: st.dir, dirUnknown: st.dirUnknown}
 	// Find `pr create`, accepting -R before either subcommand.
 	k := 0
@@ -356,10 +408,18 @@ func (w *walker) gh(args []token, st *shellState) {
 				break
 			}
 		}
+		if k >= len(args) && fromStdin {
+			w.failAlways("gh runs with arguments read from stdin")
+			return
+		}
 		if k >= len(args) || !slices.Contains(sub, args[k].val) {
 			return
 		}
 		k++
+	}
+	if fromStdin {
+		w.failAlways("gh runs with arguments read from stdin")
+		return
 	}
 
 	for j := k; j < len(args); j++ {
@@ -423,6 +483,7 @@ type token struct {
 
 func wordToken(w *syntax.Word) token {
 	prefix, static := staticPrefix(w.Parts)
+	prefix = unescape(prefix)
 	s, err := literal(&syntax.Word{Parts: prefix})
 	return token{val: s, known: static && err == nil}
 }
@@ -446,6 +507,36 @@ func staticPrefix(parts []syntax.WordPart) ([]syntax.WordPart, bool) {
 	return parts, true
 }
 
+// unescape turns each backslash-escaped character in unquoted literals into a single-quoted part, because
+// expand.Literal keeps the backslashes of unquoted literals.
+func unescape(parts []syntax.WordPart) []syntax.WordPart {
+	var out []syntax.WordPart
+	for _, p := range parts {
+		lit, ok := p.(*syntax.Lit)
+		if !ok || !strings.Contains(lit.Value, `\`) {
+			out = append(out, p)
+			continue
+		}
+		s := lit.Value
+		for {
+			i := strings.IndexByte(s, '\\')
+			if i < 0 || i == len(s)-1 {
+				break // a trailing backslash is kept as-is
+			}
+			_, size := utf8.DecodeRuneInString(s[i+1:])
+			if i > 0 {
+				out = append(out, &syntax.Lit{Value: s[:i]})
+			}
+			out = append(out, &syntax.SglQuoted{Value: s[i+1 : i+1+size]})
+			s = s[i+1+size:]
+		}
+		if s != "" {
+			out = append(out, &syntax.Lit{Value: s})
+		}
+	}
+	return out
+}
+
 // literal expands quotes, escapes, and a leading ~ of a word made of static parts.
 func literal(w *syntax.Word) (string, error) {
 	cfg := &expand.Config{}
@@ -465,6 +556,49 @@ func skipOptions(args []token, withValue ...string) []token {
 		}
 		if slices.Contains(withValue, a) && len(args) > 0 {
 			args = args[1:]
+		}
+	}
+	return args
+}
+
+// getopt drops the leading getopt-style options of a wrapper command. short lists the short options and long the
+// long options that take a value; onValue, if not nil, receives each such option and its value.
+func getopt(args []token, short string, long []string, onValue func(opt string, v token)) []token {
+	for len(args) > 0 && args[0].known && strings.HasPrefix(args[0].val, "-") && args[0].val != "-" {
+		a := args[0].val
+		args = args[1:]
+		var opt string
+		var v token
+		switch {
+		case a == "--":
+			return args
+		case strings.HasPrefix(a, "--"):
+			name, val, ok := strings.Cut(a, "=")
+			if !slices.Contains(long, name) {
+				continue
+			}
+			opt, v = name, token{val: val, known: true}
+			if !ok {
+				if len(args) == 0 {
+					return nil
+				}
+				v, args = args[0], args[1:]
+			}
+		default:
+			i := strings.IndexAny(a[1:], short)
+			if i < 0 {
+				continue
+			}
+			opt, v = "-"+a[1+i:2+i], token{val: a[2+i:], known: true}
+			if v.val == "" {
+				if len(args) == 0 {
+					return nil
+				}
+				v, args = args[0], args[1:]
+			}
+		}
+		if onValue != nil {
+			onValue(opt, v)
 		}
 	}
 	return args

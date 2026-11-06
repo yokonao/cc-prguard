@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.2 - 2026-11-07
+
+- Backslash escapes in unquoted words are now removed before matching, so `g\h pr create` and `gh p\r create` are checked. Previously they were allowed without checks.
+- `gh pr create` is now checked behind `timeout`, `nice`, `stdbuf`, `caffeinate`, and `sudo`. `sudo -D <dir>` is taken into account like `env -C`.
+- `xargs gh` is denied with a request to write the command plainly, because the arguments it reads from stdin cannot be inspected. `xargs gh <subcommand> ...` with a literal subcommand other than `pr create` is still allowed.
+- A command that cannot be inspected is now also denied when its `pr create` is partly quoted or escaped, such as `gh 'p'r create "$@"`.
+
 ## v0.3.1 - 2026-11-03
 
 - No behavior changes. This is the first release published as an immutable GitHub release, so its tag and assets cannot be changed; earlier releases stay mutable.
