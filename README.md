@@ -63,8 +63,8 @@ rules:
 
 The target repository is resolved in the same order as `gh`: `-R` / `--repo`, the `gh repo set-default` remote, then `origin`. An earlier `cd <dir>` in the same shell (after `&&`, `;`, or a newline, scoped to its subshell) is taken into account. If the repository cannot be resolved, only rules without `repos` apply.
 
-The whole Bash command is parsed, so every `gh pr create` in it is checked: in lists and pipelines, subshells, blocks, command substitutions, `if` / `for` / `while` bodies, behind `command`, `builtin`, `env`, `exec`, `time`, `nohup`, `timeout`, `nice`, `stdbuf`, `caffeinate`, and `sudo`, and in `bash -c` / `sh -c` scripts.
-A command that looks like it creates a PR but cannot be inspected statically, such as `eval`, `$GH pr create`, a non-literal `--label` or `cd` target, a shell reading commands from stdin, or `xargs gh`, is denied with a request to write it plainly.
+The whole Bash command is parsed, so every `gh pr create` in it is checked: in lists and pipelines, subshells, blocks, command substitutions, `if` / `for` / `while` bodies, behind `command`, `builtin`, `env`, `exec`, `time`, `nohup`, `timeout`, `nice`, `stdbuf`, `caffeinate`, `sudo`, `arch`, `script`, `watch`, and `mise exec`, and in `bash -c` / `sh -c` scripts.
+A command that looks like it creates a PR but cannot be inspected statically, such as `eval`, `$GH pr create`, a non-literal `--label` or `cd` target, a shell reading commands from stdin, `xargs gh`, `find -exec gh`, or `parallel gh`, is denied with a request to write it plainly.
 
 `gh pr create --help` and `--dry-run` are always allowed.
 

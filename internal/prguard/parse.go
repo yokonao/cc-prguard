@@ -189,12 +189,12 @@ func (w *walker) call(c *syntax.CallExpr, st *shellState) {
 		w.nested(a, st)
 		toks[i] = wordToken(a)
 	}
-	w.run(toks, st)
+	w.run(toks, st, false)
 }
 
-// run inspects a simple command, unwrapping commands that run their arguments as another command.
-func (w *walker) run(toks []token, st *shellState) {
-	fromStdin := false // a wrapper appends arguments read from stdin
+// run inspects a simple command, unwrapping commands that run their arguments as another command. fromStdin
+// means a wrapper appends arguments assembled at run time.
+func (w *walker) run(toks []token, st *shellState, fromStdin bool) {
 	for len(toks) > 0 {
 		if !toks[0].known {
 			w.fail("a command name is not a literal word")
@@ -230,6 +230,20 @@ func (w *walker) run(toks []token, st *shellState) {
 			toks = getopt(args, "tw", nil, nil)
 		case "sudo":
 			toks = w.sudo(args, &st)
+		case "arch":
+			toks = skipOptions(args, "-arch", "-d", "-e")
+		case "script":
+			toks = w.scriptCmd(args, st)
+		case "watch":
+			toks = w.watch(args, st)
+		case "mise":
+			toks = w.mise(args, &st)
+		case "find":
+			w.find(args, st)
+			return
+		case "parallel":
+			w.parallel(args, st)
+			return
 		case "xargs":
 			fromStdin = true
 			toks = getopt(args, "aEdILnPsJRS", []string{
@@ -340,6 +354,146 @@ func (w *walker) sudo(args []token, st **shellState) []token {
 
 var shellAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
+// shellString inspects a command string that a wrapper runs in a shell.
+func (w *walker) shellString(v token, st *shellState) {
+	if !v.known {
+		w.fail("a shell command string is not a literal word")
+		return
+	}
+	w.script(v.val, subshell(st))
+}
+
+// scriptCmd skips the options and file of script(1), covering both the BSD and util-linux options. util-linux
+// script runs -c in a shell.
+func (w *walker) scriptCmd(args []token, st *shellState) []token {
+	args = getopt(args, "BcEImOtT", []string{
+		"--log-io", "--command", "--echo", "--log-in", "--logging-format", "--log-out", "--log-timing",
+	}, func(opt string, v token) {
+		if opt == "-c" || opt == "--command" {
+			w.shellString(v, st)
+		}
+	})
+	if len(args) == 0 {
+		return nil
+	}
+	return args[1:]
+}
+
+// watch returns the command that `watch -x` runs. Without -x, watch runs its arguments joined by spaces with
+// sh -c, so watch inspects them as a script.
+func (w *walker) watch(args []token, st *shellState) []token {
+	cmd := getopt(args, "nq", []string{"--interval", "--equexit"}, nil)
+	for _, a := range args[:len(args)-len(cmd)] {
+		if a.val == "--exec" {
+			return cmd
+		}
+		if short, ok := strings.CutPrefix(a.val, "-"); ok && !strings.HasPrefix(short, "-") {
+			if i := strings.IndexAny(short, "nq"); i >= 0 {
+				short = short[:i] // the rest is the option value
+			}
+			if strings.Contains(short, "x") {
+				return cmd
+			}
+		}
+	}
+	vals := make([]string, len(cmd))
+	for i, a := range cmd {
+		if !a.known {
+			w.fail("a watch argument is not a literal word")
+			return nil
+		}
+		vals[i] = a.val
+	}
+	w.script(strings.Join(vals, " "), subshell(st))
+	return nil
+}
+
+// mise returns the command after -- of `mise exec` / `mise x` and inspects its -c shell command. -C changes the
+// directory only for that command.
+func (w *walker) mise(args []token, st **shellState) []token {
+	exec := false
+	for i := 0; i < len(args); i++ {
+		if v, ok := flagValue(args, &i, "-C", "--cd"); ok {
+			*st = subshell(*st)
+			if v.known {
+				(*st).cd(v.val)
+			} else {
+				(*st).dirUnknown = true
+			}
+			continue
+		}
+		if v, ok := flagValue(args, &i, "-c", "--command"); ok {
+			w.shellString(v, *st)
+			continue
+		}
+		switch a := args[i]; {
+		case !a.known:
+		case a.val == "--":
+			if !exec {
+				return nil
+			}
+			return args[i+1:]
+		case a.val == "exec" || a.val == "x":
+			exec = true
+		}
+	}
+	return nil
+}
+
+// find inspects the commands of -exec, -execdir, -ok, and -okdir, which get the found paths as arguments.
+func (w *walker) find(args []token, st *shellState) {
+	for i := 0; i < len(args); i++ {
+		if !args[i].known || !slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir"}, args[i].val) {
+			continue
+		}
+		var cmd []token
+		for i++; i < len(args); i++ {
+			a := args[i]
+			if a.known && (a.val == ";" || a.val == "+" && args[i-1].val == "{}") {
+				break
+			}
+			cmd = append(cmd, placeholder(a, "{}"))
+		}
+		w.run(cmd, st, true)
+	}
+}
+
+// parallel inspects gh in the command that GNU parallel runs. Its arguments are assembled at run time, and a
+// command given as a single word or as an input after ::: runs in a shell, which is denied if it mentions gh.
+func (w *walker) parallel(args []token, st *shellState) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case !a.known:
+			w.fail("a parallel argument is not a literal word")
+		case filepath.Base(a.val) == "gh":
+			end := i + 1
+			for end < len(args) && (!args[end].known || !strings.HasPrefix(args[end].val, ":::")) {
+				end++
+			}
+			cmd := make([]token, 0, end-i)
+			for _, t := range args[i:end] {
+				cmd = append(cmd, placeholder(t, "{"))
+			}
+			w.run(cmd, st, true)
+			i = end
+		case ghWord.MatchString(a.val):
+			w.failAlways("parallel runs gh in a shell command line")
+			return
+		}
+	}
+}
+
+var ghWord = regexp.MustCompile(`(^|[\s;&|(/'"])gh(\s|$)`)
+
+// placeholder turns a word that contains a replacement string such as {} into an unknown token.
+func placeholder(t token, marker string) token {
+	if i := strings.Index(t.val, marker); i >= 0 {
+		return token{val: t.val[:i]}
+	}
+	return t
+}
+
 // shell inspects `bash -c <script>`. A shell reading its script from stdin cannot be inspected.
 func (w *walker) shell(args []token, st *shellState) {
 	cmdString, stdin := false, false
@@ -384,8 +538,8 @@ func (w *walker) shell(args []token, st *shellState) {
 	}
 }
 
-// gh records a `gh pr create`. With fromStdin, more arguments come from stdin, so gh is denied unless its
-// literal arguments already name another subcommand.
+// gh records a `gh pr create`. With fromStdin, more arguments are assembled at run time, so gh is denied unless
+// its literal arguments already name another subcommand.
 func (w *walker) gh(args []token, st *shellState, fromStdin bool) {
 	pr := &prCreate{cdDir: st.dir, dirUnknown: st.dirUnknown}
 	// Find `pr create`, accepting -R before either subcommand.
@@ -401,6 +555,10 @@ func (w *walker) gh(args []token, st *shellState, fromStdin bool) {
 				continue
 			}
 			if !args[k].known {
+				if fromStdin {
+					w.failAlways("gh runs with arguments assembled at run time")
+					return
+				}
 				w.fail("a gh subcommand is not a literal word")
 				return
 			}
@@ -409,7 +567,7 @@ func (w *walker) gh(args []token, st *shellState, fromStdin bool) {
 			}
 		}
 		if k >= len(args) && fromStdin {
-			w.failAlways("gh runs with arguments read from stdin")
+			w.failAlways("gh runs with arguments assembled at run time")
 			return
 		}
 		if k >= len(args) || !slices.Contains(sub, args[k].val) {
@@ -418,7 +576,7 @@ func (w *walker) gh(args []token, st *shellState, fromStdin bool) {
 		k++
 	}
 	if fromStdin {
-		w.failAlways("gh runs with arguments read from stdin")
+		w.failAlways("gh runs with arguments assembled at run time")
 		return
 	}
 

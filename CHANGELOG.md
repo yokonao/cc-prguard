@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.3 - 2026-11-11
+
+- `gh pr create` is now checked behind `arch`, `script`, `watch`, and `mise exec` / `mise x`. Previously it was allowed without checks. `watch` without `-x` and `script -c` / `mise exec -c` run their command in a shell, so it is parsed as a script, and `mise -C <dir>` is taken into account like `env -C`.
+- `gh` run by `find -exec`, `-execdir`, `-ok`, `-okdir`, or GNU `parallel` is denied with a request to write the command plainly, as for `xargs gh`, because its arguments are assembled at run time. A literal subcommand other than `pr create`, such as `find . -exec gh pr view {} \;`, is still allowed.
+
 ## v0.3.2 - 2026-11-07
 
 - Backslash escapes in unquoted words are now removed before matching, so `g\h pr create` and `gh p\r create` are checked. Previously they were allowed without checks.
