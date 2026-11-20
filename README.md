@@ -37,7 +37,7 @@ Earlier versions do not run the hook for Monitor.
 With `"onFailure": "block"`, a failing hook then blocks Monitor calls as well as Bash calls.
 
 In Claude Code's Code Mode (experimental, v2.1.323 or later), each tool call Claude's code makes goes through PreToolUse hooks, so the `Bash` matcher covers the commands it runs and cc-prguard checks `gh pr create` in them too.
-In Code Mode, a hook that fails to run or times out refuses the call even without `onFailure`, for example when the binary is missing.
+In Code Mode, Claude Code v2.1.323 to v2.1.328 refuse the call when the hook fails to run or times out, for example when the binary is missing, even without `onFailure`; v2.1.329 or later need `"onFailure": "block"` for that, as outside Code Mode.
 
 ## Rules
 
