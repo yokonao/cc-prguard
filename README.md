@@ -39,6 +39,9 @@ With `"onFailure": "block"`, a failing hook then blocks Monitor calls as well as
 In Claude Code's Code Mode (experimental, v2.1.323 or later), each tool call Claude's code makes goes through PreToolUse hooks, so the `Bash` matcher covers the commands it runs and cc-prguard checks `gh pr create` in them too.
 In Code Mode, Claude Code v2.1.323 to v2.1.328 refuse the call when the hook fails to run or times out, for example when the binary is missing, even without `onFailure`; v2.1.329 or later need `"onFailure": "block"` for that, as outside Code Mode.
 
+Shell commands injected into a skill or slash command (`` !`<command>` `` and ` ```! ` blocks) run as it loads without PreToolUse hooks, so cc-prguard does not check `gh pr create` in them.
+This is out of scope: write such commands in the skill's instructions for Claude to run instead.
+
 ## Rules
 
 Rules live in `$XDG_CONFIG_HOME/cc-prguard/config.yaml` (default `~/.config/cc-prguard/config.yaml`). Without the file, every command is allowed.
