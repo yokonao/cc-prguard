@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README: document that shell commands injected into a skill or slash command are not checked, since they run without PreToolUse hooks.
 - README: document that the hook also checks commands run from Code Mode (Claude Code v2.1.323 or later), and that from v2.1.329 a failing hook refuses them only with `"onFailure": "block"`.
 
 ## v0.3.3 - 2026-11-11
